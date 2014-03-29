@@ -2,10 +2,9 @@
 
 Lists all tables with corresponding foreign key names that reference a particular table or ID, example:
 
+    $ ./mysql_fk_check --table inDB.Entity --id 12949 --all
+
 ```
-
-$ ./mysql_fk_check --table inDB.Entity --id 12949 --all
-
 inDB.Entity.entity_id '12949' is referenced in the following tables: 
 
 +----------------------+------------------------+
@@ -63,5 +62,4 @@ Complete list of references for inDB.Entity.entity_id :
 | inDB.UserGroup            | usergroup_ibfk_1            |
 | inDB.UserGroupEntityMap   | UserGroupEntityMap_ibfk_2   |
 +---------------------------+-----------------------------+
-
 ```
