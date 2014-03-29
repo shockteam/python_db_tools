@@ -1,4 +1,4 @@
-# mysql_fk_check
+### mysql_fk_check
 
 Lists all tables with corresponding foreign key names that reference a particular table or ID, example:
 
