@@ -1,0 +1,3 @@
+db_mysql:
+  url: mysql+pymysql://root@localhost/mysql
+  echo: false

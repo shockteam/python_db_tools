@@ -1,0 +1,116 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import sys
+import os
+import argparse
+from termcolor import colored
+from prettytable import PrettyTable
+import sqlalchemy
+from sqlalchemy.sql import text, and_, func
+from base import Base
+
+class DbFkChecker(Base):
+  """ CLI for checking FK refs :
+
+  Usage examples :
+
+  # list all tables and foreign keys that reference table db_foo.db_bar
+  $ ./mysql_fk_check -table db_foo.table_bar
+
+  # list all tables and foreign keys that reference primary key 12345 in table db_foo.db_bar
+  $ ./mysql_fk_check -table db_foo.table_bar -id 12345
+
+  # list both existing and all possible references (combination of two options above)
+  $ ./mysql_fk_check -table db_foo.table_bar -id 12345 -all
+
+  """
+
+  def __init__(self):
+    super(DbFkChecker, self).__init__()
+    engine = sqlalchemy.engine_from_config(self.conf['db_mysql'], '')
+    self.conn = engine.connect()
+
+  # -------
+  # run() :
+  # -------
+  def run(self):
+
+    self.check_usage()
+
+    ref_tables_all = []  # list of all dependent tables
+    ref_tables = []      # list of dependent tables with existing refs
+    schema, table = args.table.split('.')
+
+    # if id is specified, check its refs :
+    id_is_specified = False if args.id is None else True
+
+    # if id is specified, it must be numeric :
+    if id_is_specified and not args.id.isdigit():
+      print(colored("\nERROR: id must be an integer number!\n", 'red'))
+      sys.exit(1)
+
+    # table must exist :
+    query = text("""SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table""")
+    res = self.conn.execute(query, schema=schema, table=table).scalar()
+    if not res:
+      print(colored("\nERROR: Unknown table '%s'!\n" % (args.table), 'red'))
+      sys.exit(1)
+
+    # name of the PK for the table :
+    query = text("""SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE (TABLE_SCHEMA = :schema) AND (TABLE_NAME = :table) AND (COLUMN_KEY = 'PRI')""")
+    pri_key_name = self.conn.execute(query, schema=schema, table=table).scalar()
+
+    # if id is specified, it must exist :
+    if id_is_specified:
+      query = text("""SELECT %s FROM %s.%s WHERE %s = :id""" % (pri_key_name, schema, table, pri_key_name))
+      id = self.conn.execute(query, id=args.id).scalar()
+      if not id:
+        print(colored("\nWARNING: %s '%s' doesn't exist, nothing to check!\n" % (args.table + '.' + pri_key_name, args.id), 'yellow'))
+        sys.exit(0)
+
+    # extract the list of refs :
+    query = text("""SELECT TABLE_NAME, COLUMN_NAME, CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE REFERENCED_TABLE_SCHEMA = :schema AND REFERENCED_TABLE_NAME = :table""")
+    for row in self.conn.execute(query, schema=schema, table=table):
+      ref_table, ref_pk, ref_fk = row
+      ref_tables_all.append((schema + '.' + ref_table, ref_fk,))
+      # if id is specified, get the list of tables that reference it :
+      if id_is_specified:
+        query = text("""SELECT %s FROM %s.%s WHERE %s = :id""" % (ref_pk, schema, ref_table, ref_pk))
+        res = self.conn.execute(query, id=args.id).scalar()
+        if res:
+          ref_tables.append((schema + '.' + ref_table, ref_fk,))
+
+    # output results :
+    if id_is_specified:
+      if len(ref_tables):
+        print(colored("\n%s '%s' is referenced in the following tables: \n" % (args.table + '.' + pri_key_name, args.id), 'red'))
+        pt = PrettyTable()
+        pt.add_column("TABLE NAME", [i[0] for i in ref_tables])
+        pt.add_column("FK NAME", [i[1] for i in ref_tables])
+        pt.align = "l"
+        print(pt)
+      else:
+        print(colored("\n[OK] no refs detected\n", 'green'))
+
+    if not id_is_specified or (args.all and len(ref_tables_all)):
+      print(colored("\nComplete list of references for %s : \n" % (args.table + '.' + pri_key_name), 'blue'))
+      pt = PrettyTable()
+      pt.add_column("TABLE NAME", [i[0] for i in ref_tables_all])
+      pt.add_column("FK NAME", [i[1] for i in ref_tables_all])
+      pt.align = "l"
+      print(pt)
+
+  def check_usage(self):
+    if not any([args.table, args.id]):
+      parser.print_help()
+      sys.exit(0)
+
+if __name__ == '__main__':
+
+  parser = argparse.ArgumentParser(description=DbFkChecker.__doc__, formatter_class=argparse.RawTextHelpFormatter)
+  parser.add_argument('--table', action='store', help='fully-qualified table name')
+  parser.add_argument('--id', action='store', help='entity ID (primary key)')
+  parser.add_argument('--all', action='store_true', help='output both existing and possible references')
+  args = parser.parse_args()
+  cli = DbFkChecker()
+  cli.run()
