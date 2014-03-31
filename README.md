@@ -1,3 +1,15 @@
+### mysql_backup_dropbox
+
+MySQL backup script, mysqldumps DB and uploads it to DropBox.
+Removes remote backup files older than X weeks.
+
+    $ ./mysql_backup_dropbox --database test
+
+```
+* uploaded /test_2014-03-30_17-28-26.gz (693 bytes)
+* deleted  /test_2014-02-15_17-27-29.gz (0 bytes)
+```
+
 ### mysql_fk_check
 
 Lists all tables with corresponding foreign key names that reference a particular table or ID, example:

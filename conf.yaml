@@ -1,3 +1,7 @@
-db_mysql:
+backup_dir: /tmp/
+db:
   url: mysql+pymysql://root@localhost/mysql
   echo: false
+dropbox:
+  access_token: INSERT_YOUR_TOKEN_HERE
+  retention_weeks: 4

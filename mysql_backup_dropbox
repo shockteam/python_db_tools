@@ -1,0 +1,91 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import sys
+import os
+import re
+import argparse
+from subprocess import Popen, PIPE
+import sqlalchemy
+import datetime
+import dropbox
+from base import Base
+
+class DbBackuper(Base):
+  """  MySQL backup script, mysqldumps a database and uploads the file to dropbox.
+  Removes remote backup files older than X weeks.
+  Make sure the following conf.yaml variables are set :
+
+  * backup_dir                 : local temp directory, e.g. /tmp/
+  * db['url']                  : sqla connection string
+  * dropbox['access_token']    : dropbox access token
+  * dropbox['retention_weeks'] : remote retention policy in weeks
+
+  Usage examples :
+  ~~~~~~~~~~~~~~~~
+
+  # backup 'test' database :
+  $ ./mysql_backup_dropbox --database test
+    * uploaded /test_2014-03-30_17-19-24.gz (693 bytes)
+    * deleted  /test_2014-01-30_17-18-01.gz (0 bytes)
+    * deleted  /test_2014-02-12_17-18-49.gz (0 bytes)
+
+  """
+
+  def __init__(self):
+    super(DbBackuper, self).__init__()
+    self.client = dropbox.client.DropboxClient(self.conf['dropbox']['access_token'])
+
+  # -------
+  # run() :
+  # -------
+  def run(self):
+    """ cli driver """
+    self.check_usage()
+    self.backup()
+    self.purge(self.conf['backup_dir'], args.database + '_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}.gz')
+
+  def backup(self):
+    engine = sqlalchemy.engine_from_config(self.conf['db'], '')
+    file_name =  args.database + '_' + datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '.gz'
+    file_path = self.conf['backup_dir'] + file_name
+    f = open(file_path, 'wb')
+    mysqldump_args = [
+      'mysqldump',
+      '-u',
+      engine.url.username,
+      '--add-drop-database',
+      '--databases',
+      args.database,
+    ]
+    if engine.url.password:
+      mysqldump_args.append('-p{0}'.format(engine.url.password))
+    p1 = Popen(mysqldump_args, stdout=PIPE)
+    p2 = Popen('gzip', stdin=p1.stdout, stdout=f)
+    p2.wait()
+    p1.wait()
+    f = open(file_path, 'rb')
+    response = self.client.put_file('/{0}'.format(file_name), f)
+    print("* uploaded {0} ({1})".format(response['path'], response['size']))
+
+  def purge(self, dir_, pattern):
+    """ removed local temp file, remove remote files older than X weeks """
+    for f in os.listdir(dir_):
+      if re.search(pattern, f):
+        os.remove(os.path.join(dir_, f))
+    folder_metadata = self.client.metadata('/')
+    for f in [i['path'] for i in folder_metadata['contents']]:
+      if datetime.datetime.strptime(f.split('_')[1], "%Y-%m-%d") < (datetime.datetime.now() - datetime.timedelta(weeks=self.conf['dropbox']['retention_weeks'])):
+        response = self.client.file_delete(f)
+        print("* deleted  {0} ({1})".format(response['path'], response['size']))
+
+  def check_usage(self):
+    if not any([args.database]):
+      parser.print_help()
+      sys.exit(0)
+
+if __name__ == '__main__':
+  parser = argparse.ArgumentParser(description=DbBackuper.__doc__, formatter_class=argparse.RawTextHelpFormatter)
+  parser.add_argument('--database', action='store', help='Database name')
+  args = parser.parse_args()
+  cli = DbBackuper()
+  cli.run()
